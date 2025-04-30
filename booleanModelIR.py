@@ -96,9 +96,10 @@ if __name__ == "__main__":
     for q in queries:
         result = boolean_search(q, index, len(documents))
         sorted_result = sorted(result)
+        result_count = len(sorted_result)
 
         print(f"\n ============================================= 🔍 Query: {q} =============================================")
-        print(f"📄 Matching document IDs: {sorted_result}")
+        print(f"📄 {result_count} documents matched: {sorted_result}")
 
         if sorted_result:
             first_id = sorted_result[0]
@@ -109,13 +110,20 @@ if __name__ == "__main__":
             print(f"🏷️ Tag:\n{row['Tag']}\n")
             print(f"📄 Content:\n{row['Content']}\n")
 
-            # Dynamic debug: 쿼리의 모든 검색어에 대해 포함 여부 확인
+            # Dynamic debug: 쿼리의 모든 검색어에 대해 포함 여부 확인 및 누락 카운트
             print("\n🛠 Debug: term inclusion check")
-            # 쿼리에서 연산자 제외하고 단어만 추출
             terms = [token.lower() for token in re.findall(r"\b\w+\b", q)
                      if token.upper() not in {'AND', 'OR', 'NOT'}]
-            for term in sorted(set(terms)):
+            unique_terms = sorted(set(terms))
+
+            missing_count = 0
+            for term in unique_terms:
                 presence = term in documents[first_id].split()
                 print(f"  '{term}' in doc: {presence}")
+                if not presence:
+                    missing_count += 1
+
+            total_terms = len(unique_terms)
+            print(f"\n🧮 Missing terms: {missing_count} / {total_terms}")
         else:
             print("❌ No results found.")
