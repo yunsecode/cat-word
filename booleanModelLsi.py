@@ -2,14 +2,14 @@
 
 import pandas as pd
 import re
-from collections import defaultdict
-import numpy as np
 import nltk
 from nltk.corpus import wordnet
 import gensim.downloader as api
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
+from sklearn.preprocessing import Normalizer
 from sklearn.metrics.pairwise import cosine_similarity
+from collections import defaultdict
 
 # NLTK WordNet 데이터 다운로드 (최초 1회)
 nltk.download('wordnet')
@@ -22,15 +22,15 @@ pd.set_option("display.max_colwidth", None)
 # -----------------------------
 def load_documents(csv_path):
     df = pd.read_csv(csv_path)
-    documents = []
+    docs = []
     for _, row in df.iterrows():
         text = f"{row['Title']} {row['Tag']} {row['Content']}"
         text = re.sub(r'[^a-zA-Z0-9 ]', ' ', text.lower())
-        documents.append(text)
-    return df, documents
+        docs.append(text)
+    return df, docs
 
 # -----------------------------
-# STEP 2: 역색인 구축 (Boolean 검색용)
+# STEP 2: 역색인 구축
 # -----------------------------
 def build_inverted_index(docs):
     index = defaultdict(set)
@@ -47,63 +47,63 @@ def boolean_search(query, index, total_docs):
         q = q.lower()
         q = re.sub(r'([()])', r' \1 ', q)
         return q.split()
+
     def precedence(op):
         return {'NOT': 3, 'AND': 2, 'OR': 1}.get(op, 0)
-    def apply_op(op, vals):
+
+    def apply_op(op, values):
         if op == 'NOT':
-            v = vals.pop()
-            return set(range(total_docs)) - v
-        r = vals.pop(); l = vals.pop()
-        return (l & r) if op == 'AND' else (l | r)
+            val = values.pop()
+            return set(range(total_docs)) - val
+        right = values.pop()
+        left = values.pop()
+        if op == 'AND': return left & right
+        if op == 'OR': return left | right
+        return set()
+
     def eval_query(tokens):
-        vals, ops = [], []
+        values, ops = [], []
         i = 0
         while i < len(tokens):
-            t = tokens[i]
-            if t == '(': ops.append(t)
-            elif t == ')':
-                while ops and ops[-1] != '(': vals.append(apply_op(ops.pop(), vals))
+            token = tokens[i]
+            if token == '(': ops.append(token)
+            elif token == ')':
+                while ops and ops[-1] != '(': values.append(apply_op(ops.pop(), values))
                 ops.pop()
-            elif t.upper() in {'AND','OR','NOT'}:
-                while ops and precedence(ops[-1]) >= precedence(t.upper()):
-                    vals.append(apply_op(ops.pop(), vals))
-                ops.append(t.upper())
+            elif token.upper() in {'AND', 'OR', 'NOT'}:
+                while ops and precedence(ops[-1]) >= precedence(token.upper()):
+                    values.append(apply_op(ops.pop(), values))
+                ops.append(token.upper())
             else:
-                vals.append(index.get(t, set()))
+                values.append(index.get(token, set()))
             i += 1
         while ops:
-            vals.append(apply_op(ops.pop(), vals))
-        return vals[-1] if vals else set()
-    return eval_query(tokenize(query))
+            values.append(apply_op(ops.pop(), values))
+        return values[-1] if values else set()
+
+    tokens = tokenize(query)
+    return eval_query(tokens)
 
 # -----------------------------
 # STEP 4: LSI 모델 준비
 # -----------------------------
-def build_lsi(docs, n_components=100):
-    vectorizer = TfidfVectorizer()
+def build_lsi(docs, n_components=200):
+    vectorizer = TfidfVectorizer(
+        ngram_range=(1, 2),
+        stop_words='english',
+        max_df=0.8,
+        min_df=2
+    )
     tfidf = vectorizer.fit_transform(docs)
     svd = TruncatedSVD(n_components=n_components)
     lsi_matrix = svd.fit_transform(tfidf)
-    return vectorizer, svd, lsi_matrix
+    normalizer = Normalizer(copy=False)
+    lsi_norm = normalizer.fit_transform(lsi_matrix)
+    return vectorizer, svd, lsi_norm, normalizer
 
 # -----------------------------
-# STEP 5: LSI 검색 함수
+# STEP 5: 유사어 & 동의어 추출
 # -----------------------------
-def lsi_search(query, vectorizer, svd, lsi_matrix, top_k=10):
-    q = re.sub(r'[^a-zA-Z0-9 ]', ' ', query.lower())
-    q_tfidf = vectorizer.transform([q])
-    q_lsi = svd.transform(q_tfidf)
-    sims = cosine_similarity(q_lsi, lsi_matrix)[0]
-    ranked = np.argsort(-sims)[:top_k]
-    return list(ranked), sims
-
-# -----------------------------
-# STEP 6: 유사어 추출 함수
-# -----------------------------
-# WordNet 기반 동의어
-# gensim Word2Vec 기반 유사어
-
-# 사전 학습된 Word2Vec 모델 로드 (최초 1회, 메모리 주의)
 print("Loading Word2Vec model...")
 word2vec = api.load('word2vec-google-news-300')
 print("Model loaded.")
@@ -112,72 +112,72 @@ def get_synonyms(term):
     synsets = wordnet.synsets(term)
     synonyms = set(
         lemma.name().lower().replace('_', ' ')
-        for syn in synsets
-        for lemma in syn.lemmas()
+        for syn in synsets for lemma in syn.lemmas()
     )
     synonyms.discard(term)
-    return list(synonyms)
+    return synonyms
 
 
-def get_similar_terms(term, topn=5):
+def get_similar_terms(term, topn=3):
     try:
         sims = word2vec.most_similar(term, topn=topn)
-        return [w.lower() for w, _ in sims]
+        return {w.lower() for w, _ in sims}
     except KeyError:
-        return []
+        return set()
+
+
+def expand_terms(terms):
+    expanded = set()
+    for t in terms:
+        expanded.add(t)
+        expanded |= get_synonyms(t)
+        expanded |= get_similar_terms(t)
+    return expanded
 
 # -----------------------------
-# STEP 7: 쿼리 확장
+# STEP 6: LSI 재랭킹 함수
 # -----------------------------
-def expand_query(query):
-    tokens = re.findall(r"\b\w+\b|[()]", query)
-    expanded = []
-    for token in tokens:
-        if token.upper() in {'AND', 'OR', 'NOT', '(', ')'}:
-            expanded.append(token.upper())
-        else:
-            t = token.lower()
-            syns = get_synonyms(t)
-            sims = get_similar_terms(t, topn=3)
-            terms = set([t] + syns + sims)
-            if len(terms) > 1:
-                grp = ' OR '.join(terms)
-                expanded.append(f"({grp})")
-            else:
-                expanded.append(t)
-    return ' '.join(expanded)
+def lsi_rerank(terms, vectorizer, svd, lsi_norm, normalizer, subset_ids, top_k=10, threshold=0.1):
+    q = " ".join(terms)
+    q = re.sub(r'[^a-zA-Z0-9 ]', ' ', q.lower())
+    q_tfidf = vectorizer.transform([q])
+    q_lsi = svd.transform(q_tfidf)
+    q_norm = normalizer.transform(q_lsi)
+    sims = cosine_similarity(q_norm, lsi_norm)[0]
+    candidates = [(i, sims[i]) for i in subset_ids if sims[i] >= threshold]
+    candidates.sort(key=lambda x: -x[1])
+    ranked = [i for i, _ in candidates][:top_k]
+    return ranked, sims
 
 # -----------------------------
-# STEP 8: 실행 및 비교
+# STEP 7: 실행 및 결과 출력
 # -----------------------------
 if __name__ == '__main__':
     csv_path = './Financial.csv'
     df, documents = load_documents(csv_path)
     index = build_inverted_index(documents)
-    vectorizer, svd, lsi_matrix = build_lsi(documents)
+    vectorizer, svd, lsi_norm, normalizer = build_lsi(documents)
 
-    raw_queries = [
-        'automobile AND electric',
-        # 'battery AND car',
-        # 'electric NOT fire',
-        # 'auto OR vehicle',
-        # 'NOT tesla'
-    ]
-
+    raw_queries = ['car AND electric']
     for q in raw_queries:
-        exp_q = expand_query(q)
-        bool_res = sorted(boolean_search(exp_q, index, len(documents)))
-        lsi_res, _ = lsi_search(exp_q, vectorizer, svd, lsi_matrix, top_k=20)
+        # Boolean 검색으로 후보 문서 필터링
+        bool_ids = boolean_search(q, index, len(documents))
+        print(f"\nBoolean filter matched {len(bool_ids)} docs")
 
-        print(f"\n▶ 원본: {q}")
-        print(f"▶ 확장된 쿼리: {exp_q}")
-        print(f" Boolean: {len(bool_res)}건, 예시 IDs: {bool_res[:5]}")
-        print(f" LSI: 상위 20 IDs: {lsi_res}")
+        # 쿼리에서 실제 키워드 추출
+        terms = [t.lower() for t in re.findall(r"\b\w+\b", q)
+                 if t.upper() not in {'AND', 'OR', 'NOT'}]
+        expanded = sorted(expand_terms(terms))
+        print(f"Original terms: {terms}")
+        print(f"Expanded terms: {expanded}")
 
-        set_b, set_l = set(bool_res), set(lsi_res)
-        only_b = set_b - set_l
-        only_l = set_l - set_b
-        common = set_b & set_l
-        print(f" - Boolean 전용: {len(only_b)}")
-        print(f" - LSI 전용: {len(only_l)}")
-        print(f" - 공통: {len(common)}")
+        # LSI로 재랭킹
+        lsi_ids, sims = lsi_rerank(expanded, vectorizer, svd, lsi_norm, normalizer,
+                                    subset_ids=bool_ids, top_k=10, threshold=0.1)
+        print("\nTop LSI-ranked docs within boolean results:")
+        for doc_id in lsi_ids:
+            row = df.iloc[doc_id]
+            print(f"--- ID {doc_id} | score={sims[doc_id]:.3f}")
+            print(f"Title : {row['Title']}")
+            print(f"Content : {row['Content']}")
+            print()
