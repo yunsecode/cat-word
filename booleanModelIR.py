@@ -7,19 +7,19 @@ from collections import defaultdict
 pd.set_option("display.max_colwidth", None)
 
 # -----------------------------
-# STEP 1: 데이터 로딩 & 전처리
+# STEP 1: Data Loading & Preprocessing
 # -----------------------------
 def load_documents(csv_path):
     df = pd.read_csv(csv_path)
     documents = []
     for i, row in df.iterrows():
         text = f"{row['Title']} {row['Tag']} {row['Content']}"
-        text = re.sub(r'[^a-zA-Z0-9 ]', ' ', text.lower())  # 특수문자 제거 + 소문자화
+        text = re.sub(r'[^a-zA-Z0-9 ]', ' ', text.lower())  # Remove special characters + lowercase
         documents.append(text)
     return df, documents
 
 # -----------------------------
-# STEP 2: 역색인 구축
+# STEP 2: Build Inverted Index
 # -----------------------------
 def build_inverted_index(docs):
     index = defaultdict(set)
@@ -29,7 +29,7 @@ def build_inverted_index(docs):
     return index
 
 # -----------------------------
-# STEP 3: Boolean 검색 엔진 (우선순위 완전 반영)
+# STEP 3: Boolean Search Engine (full operator precedence)
 # -----------------------------
 def boolean_search(query, index, total_docs):
     def tokenize(query):
@@ -78,10 +78,10 @@ def boolean_search(query, index, total_docs):
     return eval_query(tokens)
 
 # -----------------------------
-# STEP 4: 실행
+# STEP 4: Execution
 # -----------------------------
 if __name__ == "__main__":
-    csv_path = "./Financial.csv"  # 🔁 여기에 실제 파일 경로를 입력하세요
+    csv_path = "./Financial.csv"  # 🔁 Replace with your actual CSV file path
     df, documents = load_documents(csv_path)
     index = build_inverted_index(documents)
 
@@ -110,7 +110,7 @@ if __name__ == "__main__":
             print(f"🏷️ Tag:\n{row['Tag']}\n")
             print(f"📄 Content:\n{row['Content']}\n")
 
-            # Dynamic debug: 쿼리의 모든 검색어에 대해 포함 여부 확인 및 누락 카운트
+            # Dynamic debug: check inclusion of all query terms and count missing
             print("\n🛠 Debug: term inclusion check")
             terms = [token.lower() for token in re.findall(r"\b\w+\b", q)
                      if token.upper() not in {'AND', 'OR', 'NOT'}]
