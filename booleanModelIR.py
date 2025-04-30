@@ -90,7 +90,7 @@ if __name__ == "__main__":
     queries = [
         "car AND electric",
         "asdad OR upbeat",
-        "NOT asd",
+        # "NOT adasdasd",
         # "(battery AND car) OR (electric AND NOT fire)"
     ]
 
@@ -103,15 +103,19 @@ if __name__ == "__main__":
 
         if sorted_result:
             first_id = sorted_result[0]
-            print("\n📌 First matched document (original row):")
-            print(df.iloc[first_id])
+            row = df.iloc[first_id]
 
-            print("\n🧾 Processed text used for search:")
-            print(documents[first_id])
+            print("\n📌 First matched document (formatted):\n")
+            print(f"🧾 Title:\n{row['Title']}\n")
+            print(f"🏷️ Tag:\n{row['Tag']}\n")
+            print(f"📄 Content:\n{row['Content']}\n")
+
+            # print("\n📌 Processed text used for search:")
+            # print(documents[first_id])
 
             print("\n🛠 Debug: term inclusion check")
             print(f"  'car' in doc: {'car' in documents[first_id].split()}")
-            print(f"  'racing' in doc: {'racing' in documents[first_id].split()}")
+            print(f"  'electric' in doc: {'electric' in documents[first_id].split()}")
         else:
             print("❌ No results found.")
 
