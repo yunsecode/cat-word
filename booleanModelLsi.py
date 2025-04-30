@@ -57,10 +57,8 @@ def boolean_search(query, index, total_docs):
             return set(range(total_docs)) - val  # Complement
         right = values.pop()
         left = values.pop()
-        if op == 'AND':
-            return left & right
-        if op == 'OR':
-            return left | right
+        if op == 'AND': return left & right
+        if op == 'OR': return left | right
         return set()
 
     def eval_query(tokens):
