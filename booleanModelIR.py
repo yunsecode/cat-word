@@ -61,17 +61,15 @@ def boolean_search(query, index, total_docs):
             if token == '(':
                 ops.append(token)
             elif token == ')':
-                while ops and ops[-1] != '(':
-                    values.append(apply_op(ops.pop(), values))
+                while ops and ops[-1] != '(': values.append(apply_op(ops.pop(), values))
                 ops.pop()
-            elif token in {'AND', 'OR', 'NOT'}:
-                while ops and precedence(ops[-1]) >= precedence(token):
+            elif token.upper() in {'AND', 'OR', 'NOT'}:
+                while ops and precedence(ops[-1]) >= precedence(token.upper()):
                     values.append(apply_op(ops.pop(), values))
-                ops.append(token)
+                ops.append(token.upper())
             else:
                 values.append(index.get(token, set()))
             i += 1
-
         while ops:
             values.append(apply_op(ops.pop(), values))
         return values[-1] if values else set()
@@ -90,8 +88,9 @@ if __name__ == "__main__":
     queries = [
         "car AND electric",
         "asdad OR upbeat",
-        # "NOT adasdasd",
-        # "(battery AND car) OR (electric AND NOT fire)"
+        "NOT adasdasd",
+        "NOT tesla",
+        "(battery AND car) OR (electric AND NOT fire)"
     ]
 
     for q in queries:
@@ -110,12 +109,13 @@ if __name__ == "__main__":
             print(f"🏷️ Tag:\n{row['Tag']}\n")
             print(f"📄 Content:\n{row['Content']}\n")
 
-            # print("\n📌 Processed text used for search:")
-            # print(documents[first_id])
-
+            # Dynamic debug: 쿼리의 모든 검색어에 대해 포함 여부 확인
             print("\n🛠 Debug: term inclusion check")
-            print(f"  'car' in doc: {'car' in documents[first_id].split()}")
-            print(f"  'electric' in doc: {'electric' in documents[first_id].split()}")
+            # 쿼리에서 연산자 제외하고 단어만 추출
+            terms = [token.lower() for token in re.findall(r"\b\w+\b", q)
+                     if token.upper() not in {'AND', 'OR', 'NOT'}]
+            for term in sorted(set(terms)):
+                presence = term in documents[first_id].split()
+                print(f"  '{term}' in doc: {presence}")
         else:
             print("❌ No results found.")
-
